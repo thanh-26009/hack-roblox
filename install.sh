@@ -6,8 +6,9 @@ curl -Ls "https://raw.githubusercontent.com/thieusitinks/Rokid-Manager/refs/head
 curl -LS "https://raw.githubusercontent.com/thanh-26009/hack-roblox/refs/heads/main/w-azure.txt" -o /sdcard/Download/w-azure.lua
 curl -ls "https://raw.githubusercontent.com/thanh-26009/hack-roblox/refs/heads/main/Royxkaitun.txt" -o /sdcard/Download/kaitun.lua
 curl -Ls "https://raw.githubusercontent.com/thanh-26009/hack-roblox/refs/heads/main/Finder-fruit-turbo.txt" -o /sdcard/Download/fruit.lua
-curl -Ls "https://raw.githubusercontent.com/thanh-26009/Ugphone/refs/heads/main/download.py" -o download.py
+curl -Ls "https://raw.githubusercontent.com/thanh-26009/Ugphone/refs/heads/main/download.py" -o /sdcard/Download/download.py
 
+cd /sdcard/Download/
 python3 download.py https://www.mediafire.com/file_premium/xpf1j5jyqc7wjuy/Delta-666.609-01.apk/file
 su -c "pm install -r Delta-666.609-01.apk"
 echo "Đã cài xong Delta"
