@@ -8,7 +8,4 @@ curl -ls "https://raw.githubusercontent.com/thanh-26009/hack-roblox/refs/heads/m
 curl -Ls "https://raw.githubusercontent.com/thanh-26009/hack-roblox/refs/heads/main/Finder-fruit-turbo.txt" -o /sdcard/Download/fruit.lua
 curl -Ls "https://raw.githubusercontent.com/thanh-26009/Ugphone/refs/heads/main/download.py" -o /sdcard/Download/download.py
 
-cd /sdcard/Download/
-python3 download.py https://www.mediafire.com/file_premium/xpf1j5jyqc7wjuy/Delta-666.609-01.apk/file
-su -c "pm install -r Delta-666.609-01.apk"
-echo "Đã cài xong Delta"
+
