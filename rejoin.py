@@ -20,11 +20,14 @@ from flask import Flask, request
 import requests
 # ================================================
 
+os.environ["PATH"] = "/data/data/com.termux/files/usr/bin:" + os.environ.get("PATH", "")
+
 # ================== CONFIG ==================
 PLACE_ID = 2753915549
 TARGET_WEBHOOK = "https://discord.com/api/webhooks/1443617207765700701/_3n2NIaDoplc6SPuDumk88xUFcWdDcUtxB9JoT8lDhUJgNKu4YPoZUqmINj_iQuzm2jH"
 TIMEOUT = 600  # 10 phút
 SCREEN_PATH = "/sdcard/screen.png"
+SU_BIN = "/data/data/com.termux/files/usr/bin/su"
 # ============================================
 
 app = Flask(__name__)
@@ -36,10 +39,10 @@ def restart_roblox():
     global last_webhook_time
     print("[!] Restarting Roblox")
 
-    os.system("su -c 'am force-stop com.roblox.client'")
+    os.system(f"{SU_BIN} -c 'am force-stop com.roblox.client'")
     time.sleep(3)
     os.system(
-        f"su -c \"am start -a android.intent.action.VIEW -d 'roblox://placeId={PLACE_ID}'\""
+        f"{SU_BIN} -c \"am start -a android.intent.action.VIEW -d 'roblox://placeId={PLACE_ID}'\""
     )
 
     with lock:
@@ -47,7 +50,7 @@ def restart_roblox():
 
 # ================== SCREENSHOT ==================
 def take_screenshot():
-    os.system(f"su -c 'screencap -p {SCREEN_PATH}'")
+    os.system(f"{SU_BIN} -c 'screencap -p {SCREEN_PATH}'")
 
 # ================== WEBHOOK ==================
 @app.route("/webhook", methods=["POST"])
