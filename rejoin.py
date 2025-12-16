@@ -1,77 +1,104 @@
-import sys
 import os
 import time
 import json
 import threading
 from datetime import datetime
 
-# ================= AUTO INSTALL =================
-def ensure_package(pkg):
-    try:
-        __import__(pkg)
-    except ImportError:
-        print(f"[!] Installing missing package: {pkg}")
-        os.system(f"pip install {pkg}")
-
-ensure_package("flask")
-ensure_package("requests")
-
 from flask import Flask, request
 import requests
-# ===============================================
 
-# FIX PATH cho Termux (QUAN TRỌNG)
-os.environ["PATH"] = "/data/data/com.termux/files/usr/bin:" + os.environ.get("PATH", "")
-
-# ================== CONFIG ==================
+# ================= CONFIG =========================
 PLACE_ID = 2753915549
-TARGET_WEBHOOK = "https://discord.com/api/webhooks/1443617207765700701/_3n2NIaDoplc6SPuDumk88xUFcWdDcUtxB9JoT8lDhUJgNKu4YPoZUqmINj_iQuzm2jH"  # ← đổi webhook
-TIMEOUT = 600  # 10 phút
-SCREEN_PATH = "/sdcard/screen.png"
-SU_BIN = "/data/data/com.termux/files/usr/bin/su"
-# ============================================
 
+TARGET_WEBHOOK = "https://discord.com/api/webhooks/1443617207765700701/_3n2NIaDoplc6SPuDumk88xUFcWdDcUtxB9JoT8lDhUJgNKu4YPoZUqmINj_iQuzm2jH"  # ĐỔI
+SCREEN_PATH = "/sdcard/screen.png"
+
+WEBHOOK_TIMEOUT = 600          # 10 phút
+CRASH_CHECK_INTERVAL = 5       # giây
+RESTART_COOLDOWN = 10          # chống loop restart
+
+# ================= GLOBAL =========================
 app = Flask(__name__)
+
 last_webhook_time = time.time()
+last_restart_time = 0
 lock = threading.Lock()
 
-# ================== ROOT RUN ==================
-def run_root(cmd):
-    full = f"{SU_BIN} -c \"{cmd}\""
-    print("[ROOT]", cmd)
-    return os.system(full)
+# ================= UTILS ==========================
+def now():
+    return datetime.now().strftime("%H:%M:%S")
 
-# ================== ROBLOX ==================
-def restart_roblox():
-    global last_webhook_time
-    print("[!] Restarting Roblox")
+def run_root(cmd: str):
+    full_cmd = f'su -c "{cmd}"'
+    print(f"[{now()}] [ROOT] {cmd}")
+    return os.system(full_cmd)
+
+# ================= ROBLOX CONTROL =================
+def restart_roblox(force=False):
+    global last_restart_time, last_webhook_time
+
+    current = time.time()
+    if not force and current - last_restart_time < RESTART_COOLDOWN:
+        return
+
+    last_restart_time = current
+    print(f"[{now()}] 🔁 Restart Roblox")
 
     run_root("am force-stop com.roblox.client")
     time.sleep(3)
+
     run_root(
-        f"am start -a android.intent.action.VIEW -d 'roblox://placeId={PLACE_ID}'"
+        f"am start -a android.intent.action.VIEW "
+        f"-d 'roblox://placeId={PLACE_ID}'"
     )
 
     with lock:
         last_webhook_time = time.time()
 
-# ================== SCREENSHOT ==================
+def is_roblox_running():
+    pid = os.popen('su -c "pidof com.roblox.client"').read().strip()
+    return bool(pid)
+
+# ================= SCREENSHOT =====================
 def take_screenshot():
     run_root(f"screencap -p {SCREEN_PATH}")
 
-# ================== WEBHOOK ==================
+# ================= CRASH MONITOR ==================
+def crash_monitor():
+    while True:
+        time.sleep(CRASH_CHECK_INTERVAL)
+
+        if not is_roblox_running():
+            print(f"[{now()}] ❌ Roblox crash detected")
+            restart_roblox()
+
+# ================= WATCHDOG =======================
+def webhook_watchdog():
+    while True:
+        time.sleep(5)
+
+        with lock:
+            diff = time.time() - last_webhook_time
+
+        if diff > WEBHOOK_TIMEOUT:
+            print(f"[{now()}] ⏱ No webhook > timeout")
+            restart_roblox()
+
+# ================= WEBHOOK SERVER =================
 @app.route("/webhook", methods=["POST"])
-def webhook():
+def receive_webhook():
     global last_webhook_time
-    data = request.get_json(force=True)
 
-    print("[+] Webhook received")
+    print(f"[{now()}] 📩 Webhook received")
 
-    # 📸 chụp màn hình (LUÔN ẢNH MỚI)
+    try:
+        data = request.get_json(force=True)
+    except:
+        return "Invalid JSON", 400
+
     take_screenshot()
 
-    # thay image bằng attachment
-    if "embeds" in data and len(data["embeds"]) > 0:
+    if "embeds" in data and data["embeds"]:
         data["embeds"][0]["image"] = {
             "url": "attachment://screen.png"
         }
@@ -93,34 +120,23 @@ def webhook():
                 timeout=15
             )
 
-        print("[+] Forwarded:", r.status_code)
+        print(f"[{now()}] ✅ Forwarded to Discord ({r.status_code})")
+
     except Exception as e:
-        print("[!] Discord send error:", e)
+        print(f"[{now()}] ❌ Discord error:", e)
 
     with lock:
         last_webhook_time = time.time()
 
     return "OK", 200
 
-# ================== WATCHDOG ==================
-def watchdog():
-    global last_webhook_time
-    while True:
-        time.sleep(5)
-        with lock:
-            diff = time.time() - last_webhook_time
+# ================= MAIN ===========================
+def start_threads():
+    threading.Thread(target=restart_roblox, args=(True,), daemon=True).start()
+    threading.Thread(target=crash_monitor, daemon=True).start()
+    threading.Thread(target=webhook_watchdog, daemon=True).start()
 
-        if diff > TIMEOUT:
-            print("[!] No webhook > 10 minutes")
-            threading.Thread(target=restart_roblox, daemon=True).start()
-
-# ================== MAIN ==================
 if __name__ == "__main__":
-    # restart ngay khi chạy
-    threading.Thread(target=restart_roblox, daemon=True).start()
-
-    # watchdog nền
-    threading.Thread(target=watchdog, daemon=True).start()
-
-    # server webhook
-    app.run(host="0.0.0.0", port=5000)
+    print("🚀 Roblox Watchdog v3 (Clean Root Mode)")
+    start_threads()
+    app.run(host="0.0.0.0", port=5000, debug=False)
