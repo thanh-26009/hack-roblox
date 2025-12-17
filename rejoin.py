@@ -1,142 +1,157 @@
 import os
-import time
 import json
-import threading
-from datetime import datetime
-
-from flask import Flask, request
+import time
 import requests
+import threading
+import subprocess
+from flask import Flask, request
 
-# ================= CONFIG =========================
-PLACE_ID = 2753915549
 
-TARGET_WEBHOOK = "https://discord.com/api/webhooks/1443617207765700701/_3n2NIaDoplc6SPuDumk88xUFcWdDcUtxB9JoT8lDhUJgNKu4YPoZUqmINj_iQuzm2jH"  # ĐỔI
-SCREEN_PATH = "/sdcard/screen.png"
-
-WEBHOOK_TIMEOUT = 600          # 10 phút
-CRASH_CHECK_INTERVAL = 5       # giây
-RESTART_COOLDOWN = 10          # chống loop restart
-
-# ================= GLOBAL =========================
+# ============================================
 app = Flask(__name__)
-
 last_webhook_time = time.time()
-last_restart_time = 0
 lock = threading.Lock()
 
-# ================= UTILS ==========================
-def now():
-    return datetime.now().strftime("%H:%M:%S")
+# ================== CONFIG ==================
+TIMEOUT = 600
+DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1443617207765700701/_3n2NIaDoplc6SPuDumk88xUFcWdDcUtxB9JoT8lDhUJgNKu4YPoZUqmINj_iQuzm2jH"
+AUTO_EXEC_FOLDER = "/sdcard/Delta/Autoexecute"
+AUTO_EXEC_FILE = f"{AUTO_EXEC_FOLDER}/auto-bounty.lua"
+REMOTE_FILE_URL = "https://raw.githubusercontent.com/thanh-26009/hack-roblox/refs/heads/main/auto-bounty.lua"
 
-def run_root(cmd: str):
-    full_cmd = f'su -c "{cmd}"'
-    print(f"[{now()}] [ROOT] {cmd}")
-    return os.system(full_cmd)
 
-# ================= ROBLOX CONTROL =================
-def restart_roblox(force=False):
-    global last_restart_time, last_webhook_time
-
-    current = time.time()
-    if not force and current - last_restart_time < RESTART_COOLDOWN:
+def auto_execute_file():
+    """Kiểm tra auto-bounty.lua có tồn tại chưa, chưa có thì tải."""
+    
+    # tạo folder nếu chưa có
+    if not os.path.exists(AUTO_EXEC_FOLDER):
+        try:
+            os.makedirs(AUTO_EXEC_FOLDER)
+            print("[+] Created AUTO_EXECUTE folder")
+        except Exception as e:
+            print("[-] Failed create folder:", e)
+            return
+    
+    # nếu file đã tồn tại
+    if os.path.exists(AUTO_EXEC_FILE):
+        print("[✓] AUTO_EXECUTE script already exists → skip download")
         return
+    
+    print("[!] AUTO_EXECUTE script missing → downloading...")
 
-    last_restart_time = current
-    print(f"[{now()}] 🔁 Restart Roblox")
+    try:
+        r = requests.get(REMOTE_FILE_URL, timeout=10)
+        if r.status_code == 200:
+            with open(AUTO_EXEC_FILE, "w", encoding="utf8") as f:
+                f.write(r.text)
 
-    run_root("am force-stop com.roblox.client")
-    time.sleep(3)
+            print("[+] Downloaded auto-bounty.lua successfully")
+        else:
+            print("[-] Download failed:", r.status_code)
 
-    run_root(
-        f"am start -a android.intent.action.VIEW "
-        f"-d 'roblox://placeId={PLACE_ID}'"
-    )
+    except Exception as e:
+        print("[-] Error downloading auto script:", e)
+
+# ================== ROBLOX ==================
+def restart_roblox():
+    print("[!] Restarting Roblox")
+    subprocess.run('su -c "am force-stop com.roblox.client"', shell=True)
+    time.sleep(1)
+    subprocess.run('su -c "am start -a android.intent.action.VIEW -d roblox://placeId=2753915549"', shell=True)
+
+
+# ================== SCREENSHOT ==================
+def screen():
+    timestamp = str(int(time.time() * 1000))
+    path = f"/sdcard/screen_{timestamp}.png"
+    subprocess.run(f'su -c "screencap -p {path}"', shell=True)
+    return path
+
+
+@app.route("/webhook", methods=["POST"])
+def webhook_receiver():
+    global last_webhook_time
+
+    payload = request.get_json(force=True, silent=True)
+    if payload is None:
+        return {"error": "Invalid JSON"}, 400
+
+    print("[+] Nhận webhook")
 
     with lock:
         last_webhook_time = time.time()
 
-def is_roblox_running():
-    pid = os.popen('su -c "pidof com.roblox.client"').read().strip()
-    return bool(pid)
+    SCREEN_PATH = screen()
+    file_name = os.path.basename(SCREEN_PATH)
 
-# ================= SCREENSHOT =====================
-def take_screenshot():
-    run_root(f"screencap -p {SCREEN_PATH}")
+    IMAGE_EXISTS = os.path.exists(SCREEN_PATH)
 
-# ================= CRASH MONITOR ==================
-def crash_monitor():
-    while True:
-        time.sleep(CRASH_CHECK_INTERVAL)
+    # ================== chỉ sửa embed nếu có ảnh ==================
+    if IMAGE_EXISTS and "embeds" in payload and payload["embeds"]:
+        try:
+            embed = payload["embeds"][0]
 
-        if not is_roblox_running():
-            print(f"[{now()}] ❌ Roblox crash detected")
-            restart_roblox()
+            embed.pop("image", None)  # bỏ url gốc
+            embed["image"] = {"url": f"attachment://{file_name}"}  # thay url
 
-# ================= WATCHDOG =======================
-def webhook_watchdog():
+            print("[+] embed image replaced with local screenshot")
+
+        except Exception as e:
+            print("[-] embed modify error:", e)
+
+    else:
+        print("[!] No screenshot available → keep original embed")
+
+    # prepare payload
+    data = {"payload_json": json.dumps(payload, ensure_ascii=False)}
+
+    try:
+        if IMAGE_EXISTS:
+            print("[+] Screenshot exists → sending with file")
+
+            with open(SCREEN_PATH, "rb") as f:
+                files = {"file": (file_name, f)}
+                r = requests.post(DISCORD_WEBHOOK, data=data, files=files)
+
+        else:
+            print("[-] Screenshot missing → send only payload json")
+            r = requests.post(DISCORD_WEBHOOK, data=data)
+
+        print("[+] Forward status:", r.status_code)
+
+    except Exception as e:
+        print("[-] Error forward discord:", e)
+
+    return {"status": "forwarded"}, 200
+
+# ====== WATCHDOG ======
+def watchdog():
+    global last_webhook_time
+    print("[Watchdog] started")
+
     while True:
         time.sleep(5)
 
         with lock:
             diff = time.time() - last_webhook_time
 
-        if diff > WEBHOOK_TIMEOUT:
-            print(f"[{now()}] ⏱ No webhook > timeout")
-            restart_roblox()
+        if diff > TIMEOUT:
+            print(f"[Watchdog] No webhook {diff:.0f}s → restarting Roblox")
 
-# ================= WEBHOOK SERVER =================
-@app.route("/webhook", methods=["POST"])
-def receive_webhook():
-    global last_webhook_time
+            threading.Thread(target=restart_roblox, daemon=True).start()
 
-    print(f"[{now()}] 📩 Webhook received")
+            with lock:
+                last_webhook_time = time.time()
 
-    try:
-        data = request.get_json(force=True)
-    except:
-        return "Invalid JSON", 400
 
-    take_screenshot()
-
-    if "embeds" in data and data["embeds"]:
-        data["embeds"][0]["image"] = {
-            "url": "attachment://screen.png"
-        }
-
-    payload = {
-        "payload_json": json.dumps(data, ensure_ascii=False)
-    }
-
-    try:
-        with open(SCREEN_PATH, "rb") as img:
-            files = {
-                "file": ("screen.png", img, "image/png")
-            }
-
-            r = requests.post(
-                TARGET_WEBHOOK,
-                data=payload,
-                files=files,
-                timeout=15
-            )
-
-        print(f"[{now()}] ✅ Forwarded to Discord ({r.status_code})")
-
-    except Exception as e:
-        print(f"[{now()}] ❌ Discord error:", e)
-
-    with lock:
-        last_webhook_time = time.time()
-
-    return "OK", 200
-
-# ================= MAIN ===========================
-def start_threads():
-    threading.Thread(target=restart_roblox, args=(True,), daemon=True).start()
-    threading.Thread(target=crash_monitor, daemon=True).start()
-    threading.Thread(target=webhook_watchdog, daemon=True).start()
 
 if __name__ == "__main__":
-    print("🚀 Roblox Watchdog v3 (Clean Root Mode)")
-    start_threads()
-    app.run(host="0.0.0.0", port=5000, debug=False)
+
+    auto_execute_file()
+
+    threading.Thread(target=restart_roblox, daemon=True).start()
+
+    threading.Thread(target=watchdog, daemon=True).start()
+
+    print("Webhook forward server đang chạy port 5000...")
+    app.run(host="0.0.0.0", port=5000)
