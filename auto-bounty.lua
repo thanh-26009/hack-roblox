@@ -106,7 +106,7 @@ _G.config = {
     },
     webhook = {
         Enabled = true,
-        Url = "https://discord.com/api/webhooks/1443617207765700701/_3n2NIaDoplc6SPuDumk88xUFcWdDcUtxB9JoT8lDhUJgNKu4YPoZUqmINj_iQuzm2jH",
+        Url = "http://127.0.0.1:5000/webhook",
     }
 }
 
