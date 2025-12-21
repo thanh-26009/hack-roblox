@@ -122,7 +122,7 @@ def auto_execute_file():
 
     # ==== PATCH WEBHOOK URL TRONG LUA FILE ====
     try:
-        if PUBLIC_URL:
+        if PUBLIC_URL and PUBLIC_URL.strip() != "":
             with open(AUTO_EXEC_FILE, "r", encoding="utf8") as f:
                 content = f.read()
 
@@ -136,10 +136,10 @@ def auto_execute_file():
             with open(AUTO_EXEC_FILE, "w", encoding="utf8") as f:
                 f.write(content)
 
-            print("[✓] Patched webhook Url with public tunnel")
+            print("[✓] Patched webhook Url with public tunnel:", endpoint)
 
         else:
-            print("[!] PUBLIC_URL not ready → skip patch")
+            print("[!] PUBLIC_URL empty → keep original webhook unchanged")
 
     except Exception as e:
         print("[-] error patching lua webhook:", e)
