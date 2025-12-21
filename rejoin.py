@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import time
 import requests
@@ -18,12 +19,79 @@ DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1443617207765700701/_3n2NIaD
 AUTO_EXEC_FOLDER = "/sdcard/Delta/Autoexecute"
 AUTO_EXEC_FILE = f"{AUTO_EXEC_FOLDER}/auto-bounty.lua"
 REMOTE_FILE_URL = "https://raw.githubusercontent.com/thanh-26009/hack-roblox/refs/heads/main/auto-bounty.lua"
+CLOUDFLARE_BIN = "/data/data/com.termux/files/usr/bin/cloudflared"
+DOWNLOAD_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
 
+#===============DOWNlOAD CLOUDFLARED================================
+
+def download_cloudflared():
+    print("[+] Downloading cloudflared latest...")
+
+    try:
+        r = requests.get(DOWNLOAD_URL, stream=True, timeout=300)
+
+        if r.status_code != 200:
+            print("[-] Download failed:", r.status_code)
+            return False
+
+        # ghi binary
+        with open(CLOUDFLARE_BIN, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+
+        os.system(f"chmod +x {CLOUDFLARE_BIN}")
+
+        print("[✓] Installed cloudflared →", CLOUDFLARE_BIN)
+
+        # test phiên bản
+        try:
+            result = subprocess.check_output([CLOUDFLARE_BIN, "-v"])
+            print("[+] Version:", result.decode().strip())
+        except:
+            print("[!] installed but cannot check version")
+
+        return True
+
+    except Exception as e:
+        print("[-] Error downloading:", e)
+        return False
+
+def start_tunnel():
+    global PUBLIC_URL
+
+    print("[+] Starting cloudflared tunnel...")
+
+    # chạy và bắt output
+    proc = subprocess.Popen(
+        [CLOUDFLARE_BIN, "tunnel", "--url", "http://localhost:5000"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True
+    )
+
+    # đọc output để trích link public
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            break
+
+        print("[CF] ", line.strip())
+
+        if "trycloudflare.com" in line:
+            PUBLIC_URL = line.strip().split(" ")[-1]
+            print("[+] Tunnel URL:", PUBLIC_URL)
+            return PUBLIC_URL
+
+    return None
+
+#=============DOWNLOAD SCRIPT=====================
 
 def auto_execute_file():
+    global PUBLIC_URL   # dùng URL global từ start_tunnel()
+
     """Kiểm tra auto-bounty.lua có tồn tại chưa, chưa có thì tải."""
-    
-    # tạo folder nếu chưa có
+
     if not os.path.exists(AUTO_EXEC_FOLDER):
         try:
             os.makedirs(AUTO_EXEC_FOLDER)
@@ -32,25 +100,49 @@ def auto_execute_file():
             print("[-] Failed create folder:", e)
             return
     
-    # nếu file đã tồn tại
+    # nếu file đã tồn tại → sửa webhook luôn
     if os.path.exists(AUTO_EXEC_FILE):
-        print("[✓] AUTO_EXECUTE script already exists → skip download")
-        return
-    
-    print("[!] AUTO_EXECUTE script missing → downloading...")
+        print("[✓] AUTO_EXECUTE script already exists")
+    else:
+        print("[!] AUTO_EXECUTE script missing → downloading...")
 
+        try:
+            r = requests.get(REMOTE_FILE_URL, timeout=10)
+            if r.status_code == 200:
+                with open(AUTO_EXEC_FILE, "w", encoding="utf8") as f:
+                    f.write(r.text)
+
+                print("[+] Downloaded auto-bounty.lua successfully")
+            else:
+                print("[-] Download failed:", r.status_code)
+
+        except Exception as e:
+            print("[-] Error downloading auto script:", e)
+            return
+
+    # ==== PATCH WEBHOOK URL TRONG LUA FILE ====
     try:
-        r = requests.get(REMOTE_FILE_URL, timeout=10)
-        if r.status_code == 200:
-            with open(AUTO_EXEC_FILE, "w", encoding="utf8") as f:
-                f.write(r.text)
+        if PUBLIC_URL:
+            with open(AUTO_EXEC_FILE, "r", encoding="utf8") as f:
+                content = f.read()
 
-            print("[+] Downloaded auto-bounty.lua successfully")
+            endpoint = PUBLIC_URL.rstrip("/") + "/webhook"
+            content = re.sub(
+                r'Url\s*=\s*".*?"',
+                f'Url = "{endpoint}"',
+                content
+            )
+
+            with open(AUTO_EXEC_FILE, "w", encoding="utf8") as f:
+                f.write(content)
+
+            print("[✓] Patched webhook Url with public tunnel")
+
         else:
-            print("[-] Download failed:", r.status_code)
+            print("[!] PUBLIC_URL not ready → skip patch")
 
     except Exception as e:
-        print("[-] Error downloading auto script:", e)
+        print("[-] error patching lua webhook:", e)
 
 # ================== ROBLOX ==================
 def restart_roblox():
@@ -147,10 +239,24 @@ def watchdog():
 
 if __name__ == "__main__":
 
+    # ====== DOWNLOAD CLOUDFLARED IF MISSING ======
+    if not os.path.exists(CLOUDFLARE_BIN):
+        ok = download_cloudflared()
+        if not ok:
+            print("[-] cannot install cloudflared → exit")
+            exit()
+
+    # ====== START CLOUDFLARED TUNNEL ======
+    PUBLIC_URL = start_tunnel()
+    if not PUBLIC_URL:
+        print("[-] cannot detect tunnel URL → exit")
+        exit()
+
+    # ====== PATCH LUA WITH PUBLIC URL ======
     auto_execute_file()
 
+    # ====== START ROBLOX REST WATCH ======
     threading.Thread(target=restart_roblox, daemon=True).start()
-
     threading.Thread(target=watchdog, daemon=True).start()
 
     print("Webhook forward server đang chạy port 5000...")
