@@ -28,7 +28,7 @@ getgenv().Config = {
         ["Turn On V3"] = true,
         ["Turn On V4"] = true,
         ["Delete Map"] = false,
-        ["FPS BOOST"] = false,
+        ["FPS BOOST"] = true,
         ["White Screen"] = false,
         ["Click Delay"] = 0.5,
         ["Spin Bot"] = {
@@ -54,8 +54,8 @@ getgenv().Config = {
                 ["Z"] = { ["Enable"] = true, ["HoldTime"] = 0 },
                 ["X"] = { ["Enable"] = true, ["HoldTime"] = 0 },
                 ["C"] = { ["Enable"] = true, ["HoldTime"] = 0 },
-                ["V"] = { ["Enable"] = false, ["HoldTime"] = 0 },
-                ["F"] = { ["Enable"] = false, ["HoldTime"] = 0 }
+                ["V"] = { ["Enable"] = true, ["HoldTime"] = 0 },
+                ["F"] = { ["Enable"] = true, ["HoldTime"] = 0 }
             }
         },
         ["Sword"] = {
@@ -74,8 +74,8 @@ getgenv().Config = {
         }
     },
     ["Webhook"] = {
-        ["Enabled"] = false, 
-        ["Url"] = ""---input webhook 
+        ["Enabled"] = true, 
+        ["Url"] = "https://discord.com/api/webhooks/1443617207765700701/_3n2NIaDoplc6SPuDumk88xUFcWdDcUtxB9JoT8lDhUJgNKu4YPoZUqmINj_iQuzm2jH"---input webhook 
     }
 }
 loadstring(game:HttpGet("https://raw.githubusercontent.com/Teddyseetink/Haidepzai/refs/heads/main/TeddyHub-BountyEzz.lua"))()
